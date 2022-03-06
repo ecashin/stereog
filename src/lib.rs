@@ -1,4 +1,5 @@
 use lv2::prelude::*;
+use std::collections::HashMap;
 use wmidi::*;
 
 #[derive(PortCollection)]
@@ -7,12 +8,12 @@ pub struct Ports {
     input: InputPort<Audio>,
     output: OutputPort<Audio>,
 }
-// Now, an additional host feature is needed. A feature is something that implements the `Feature` trait and usually wraps a certain functionality of the host; In this case mapping URIs to URIDs. The discovery and validation of features is done by the framework.
+
 #[derive(FeatureCollection)]
 pub struct Features<'a> {
     map: LV2Map<'a>,
 }
-// Retrieving URIDs from the host isn't guaranteed to be real-time safe or even fast. Therefore, all URIDs that may be needed should be retrieved when the plugin is instantiated. The `URIDCollection` trait makes this easy: It provides a single method that creates an instance of itself from the mapping feature, which can also be generated using this `derive` macro.
+
 #[derive(URIDCollection)]
 pub struct URIDs {
     atom: AtomURIDCollection,
@@ -22,8 +23,7 @@ pub struct URIDs {
 
 #[uri("https://github.com/ecashin/lrgran")]
 pub struct Lrgran {
-    n_active_notes: u64,
-    program: u8,
+    active_notes: HashMap<wmidi::Note, wmidi::Velocity>,
     urids: URIDs,
 }
 
@@ -34,11 +34,7 @@ impl Lrgran {
             len = ports.input.len() - offset;
         }
 
-        let active = if self.program == 0 {
-            self.n_active_notes > 0
-        } else {
-            self.n_active_notes == 0
-        };
+        let active = !self.active_notes.is_empty();
 
         let input = &ports.input[offset..offset + len];
         let output = &mut ports.output[offset..offset + len];
@@ -62,8 +58,7 @@ impl Plugin for Lrgran {
     fn new(_plugin_info: &PluginInfo, features: &mut Features<'static>) -> Option<Self> {
         println!("lrgran new");
         Some(Self {
-            n_active_notes: 0,
-            program: 1,
+            active_notes: HashMap::new(),
             urids: features.map.populate_collection()?,
         })
     }
@@ -92,20 +87,15 @@ impl Plugin for Lrgran {
             match message {
                 MidiMessage::NoteOn(ch, note, vel) => {
                     println!("ON ch:{:?} note:{:?} vel:{:?}", ch, note, vel);
-                    self.n_active_notes += 1;
+                    println!("notes:{:?}", self.active_notes);
+                    self.active_notes.insert(note, vel);
                 }
                 MidiMessage::NoteOff(ch, note, vel) => {
                     println!("OFF ch:{:?} note:{:?} vel:{:?}", ch, note, vel);
-                    if self.n_active_notes > 0 {
-                        self.n_active_notes -= 1;
-                    }
+                    self.active_notes.remove(&note);
                 }
                 MidiMessage::ProgramChange(ch, program) => {
                     println!("PC ch:{:?} program:{:?}", ch, program);
-                    let program: u8 = program.into();
-                    if program == 0 || program == 1 {
-                        self.program = program;
-                    }
                 }
                 _ => (),
             }
@@ -120,8 +110,7 @@ impl Plugin for Lrgran {
     // During it's runtime, the host might decide to deactivate the plugin. When the plugin is reactivated, the host calls this method which gives the plugin an opportunity to reset it's internal state.
     fn activate(&mut self, _features: &mut Features<'static>) {
         println!("lrgran activate");
-        self.n_active_notes = 0;
-        self.program = 1;
+        self.active_notes = HashMap::new();
     }
 }
 
