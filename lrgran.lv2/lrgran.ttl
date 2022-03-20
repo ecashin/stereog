@@ -27,12 +27,24 @@
 		a lv2:AudioPort ,
 			lv2:InputPort ;
 		lv2:index 1 ;
-		lv2:symbol "in" ;
-		lv2:name "In"
+		lv2:symbol "in_left" ;
+		lv2:name "InLeft"
+	] , [
+		a lv2:AudioPort ,
+			lv2:InputPort ;
+		lv2:index 2 ;
+		lv2:symbol "in_right" ;
+		lv2:name "InRight"
 	] , [
 		a lv2:AudioPort ,
 			lv2:OutputPort ;
-		lv2:index 2 ;
-		lv2:symbol "out" ;
-		lv2:name "Out"
+		lv2:index 3 ;
+		lv2:symbol "out_left" ;
+		lv2:name "OutLeft"
+	] , [
+		a lv2:AudioPort ,
+			lv2:OutputPort ;
+		lv2:index 4 ;
+		lv2:symbol "out_right" ;
+		lv2:name "OutRight"
 	] .
