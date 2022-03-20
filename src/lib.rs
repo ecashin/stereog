@@ -1,8 +1,15 @@
 use lv2::prelude::*;
+use moving_avg::MovingAverage;
+use rand::prelude::*;
+use rand::Rng;
 use std::collections::HashMap;
 use wmidi::*;
 
 const MAX_SAMPLE_SECONDS: f32 = 5.0;
+const MIN_SAMPLE_SECONDS: f32 = 0.5;
+const N_GRAINS: usize = 5;
+const SOUND_ONSET_THRESHOLD: f32 = 0.4;
+const SOUND_ABSENCE_THRESHOLD: f32 = SOUND_ONSET_THRESHOLD / 5.0;
 
 #[derive(PortCollection)]
 pub struct Ports {
@@ -25,33 +32,172 @@ pub struct URIDs {
     unit: UnitURIDCollection,
 }
 
+#[derive(PartialEq)]
 enum SamplerState {
-    Off,
     Armed,
     Recording,
-    Active,
+    Playing,
+}
+
+struct Sampler {
+    state: SamplerState,
+    left: Vec<f32>,
+    right: Vec<f32>,
+    sample_rate: usize,
+    record_pos: usize,
+    recording_ma: MovingAverage<f32>,
+    last_recording_ma: f32,
+    sound_start: Option<usize>,
+    sound_end: Option<usize>,
+    grains: Option<Vec<Grain>>,
+}
+
+// grains are sound-relative, abstracted from buffer wrapping
+#[derive(Debug)]
+struct Grain {
+    start: usize, // the offset of the grain inside the sound
+    end: usize,   // the end of the grain inside the sound
+    pos: usize,   // the playback position
+}
+
+impl Grain {
+    fn new(grain_len: usize, sound_len: usize) -> Self {
+        assert!(grain_len < sound_len);
+        let mut rng = thread_rng();
+        let shrink = rng.gen_range(0..grain_len / 10);
+        let len = grain_len - shrink;
+        let start = rng.gen_range(0..sound_len - len);
+        Self {
+            start,
+            end: start + len,
+            pos: 0,
+        }
+    }
+
+    fn advance(&mut self) -> (f32, f32) {
+        todo!()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Grain;
+
+    #[test]
+    fn test_grain() {
+        let grain = Grain::new(22050, 88200);
+        println!("{:?}", grain);
+    }
+}
+
+impl Sampler {
+    fn new(sample_rate: usize, sample_seconds: f32) -> Self {
+        let n_frames = (sample_seconds * sample_rate as f32) as usize;
+        let left = vec![0.0; n_frames];
+        let right = vec![0.0; n_frames];
+        let (_, recording_ma) = make_moving_average(sample_rate);
+        Self {
+            state: SamplerState::Armed,
+            left,
+            right,
+            sample_rate,
+            record_pos: 0,
+            recording_ma,
+            last_recording_ma: 0.0,
+            sound_start: None,
+            sound_end: None,
+            grains: None,
+        }
+    }
+
+    fn frame(&mut self) -> (f32, f32) {
+        todo!()
+    }
+
+    fn minimum_sample_frames(&self) -> usize {
+        (self.sample_rate as f32 * MIN_SAMPLE_SECONDS) as usize
+    }
+
+    fn find_sound_start(&self, last_avg: f32) -> usize {
+        let (ma_len, mut ma) = make_moving_average(self.sample_rate);
+        for _ in 1..ma_len {
+            ma.feed(last_avg);
+        }
+        let mut most_quiet_pos: Option<usize> = None;
+        let mut most_quiet_amp: Option<f32> = None;
+        for i in self.minimum_sample_frames()..self.left.len() - 1 {
+            let pos = (self.record_pos + self.left.len() - i) % self.left.len();
+            let mono = (self.left[pos] + self.right[pos]) / 2.0;
+            let avg = ma.feed(mono);
+            if most_quiet_amp.is_none() || most_quiet_amp.unwrap() > mono {
+                most_quiet_amp = Some(avg);
+                most_quiet_pos = Some(pos);
+            }
+            if avg < SOUND_ABSENCE_THRESHOLD {
+                return pos;
+            }
+        }
+        if most_quiet_pos.is_some() {
+            most_quiet_pos.unwrap()
+        } else {
+            (self.record_pos + self.left.len() - 1) % self.left.len()
+        }
+    }
+    fn grain_len(&self) -> usize {
+        self.sample_rate / 2
+    }
+
+    fn listen(&mut self, in_left: std::slice::Iter<'_, f32>, in_right: std::slice::Iter<'_, f32>) {
+        for (sample_left, sample_right) in in_left.zip(in_right) {
+            self.left[self.record_pos] = *sample_left;
+            self.right[self.record_pos] = *sample_right;
+            let avg = self.recording_ma.feed((*sample_left + *sample_right) / 2.0);
+            match self.state {
+                SamplerState::Armed => {
+                    if avg > SOUND_ONSET_THRESHOLD && self.last_recording_ma < SOUND_ONSET_THRESHOLD
+                    {
+                        self.sound_start = Some(self.find_sound_start(avg));
+                    }
+                }
+                SamplerState::Recording => {
+                    if avg < SOUND_ABSENCE_THRESHOLD {
+                        let sound_end = self.record_pos;
+                        let sound_start = self.sound_start.unwrap();
+                        self.sound_end = Some(sound_end);
+                        self.state = SamplerState::Playing;
+                        let mut grains = vec![];
+                        let end = if sound_end < sound_start {
+                            sound_end + self.left.len()
+                        } else {
+                            sound_end
+                        };
+                        for _ in 1..N_GRAINS {
+                            grains.push(Grain::new(self.grain_len(), end - sound_start));
+                        }
+                        self.grains = Some(grains);
+                    }
+                }
+                SamplerState::Playing => (),
+            }
+            self.record_pos = (self.record_pos + 1) % self.left.len();
+        }
+    }
 }
 
 #[uri("https://github.com/ecashin/lrgran")]
 pub struct Lrgran {
     sample_rate: usize,
     active_notes: HashMap<wmidi::Note, wmidi::Velocity>,
-    sample: Option<(Vec<f32>, Vec<f32>)>,
-    sampler_state: SamplerState,
-    sound_onset: usize,
-    record_pos: usize,
+    sampler: Sampler,
     urids: URIDs,
 }
 
-impl Lrgran {
-    fn arm_sampler(&mut self) {
-        let n_frames = (self.sample_rate as f32 * MAX_SAMPLE_SECONDS) as usize;
-        let left: Vec<f32> = vec![0.0; n_frames];
-        let right: Vec<f32> = vec![0.0; n_frames];
-        self.sample = Some((left, right));
-        self.sampler_state = SamplerState::Armed;
-    }
+fn make_moving_average(sample_rate: usize) -> (usize, MovingAverage<f32>) {
+    let len = sample_rate / 20_000;
+    (len, MovingAverage::<f32>::new(len))
+}
 
+impl Lrgran {
     // A function to write a chunk of output, to be called from `run()`. If the gate is high, then the input will be passed through for this chunk, otherwise silence is written.
     fn write_output(&mut self, ports: &mut Ports, offset: usize, mut len: usize) {
         if ports.in_left.len() < offset + len {
@@ -65,27 +211,23 @@ impl Lrgran {
         let out_left = &mut ports.out_left[offset..offset + len];
         let out_right = &mut ports.out_right[offset..offset + len];
 
-        if let Some(sample) = &mut self.sample {
-            match self.sampler_state {
-                SamplerState::Armed | SamplerState::Recording => {
-                    let left = &mut sample.0;
-                    let right = &mut sample.1;
-                    for (sample_left, sample_right) in in_left.iter().zip(in_right.iter()) {
-                        left[self.record_pos] = *sample_left;
-                        right[self.record_pos] = *sample_right;
-                        self.record_pos = (self.record_pos + 1) % left.len();
-                    }
-                }
-                _ => (),
-            }
-        }
+        self.sampler.listen(in_left.iter(), in_right.iter());
         if active {
-            out_left.copy_from_slice(in_left);
-            out_right.copy_from_slice(in_right);
+            if self.sampler.state == SamplerState::Playing {
+                for (out_l, out_r) in out_left.iter_mut().zip(out_right.iter_mut()) {
+                    let (g_left, g_right) = self.sampler.frame();
+                    *out_l = g_left;
+                    *out_r = g_right;
+                }
+            } else {
+                out_left.copy_from_slice(in_left);
+                out_right.copy_from_slice(in_right);
+            }
         } else {
-            for (frame_left, frame_right) in out_left.iter_mut().zip(out_right.iter_mut()) {
-                *frame_left = 0.0;
-                *frame_right = 0.0;
+            for (out_sample_left, out_sample_right) in out_left.iter_mut().zip(out_right.iter_mut())
+            {
+                *out_sample_left = 0.0;
+                *out_sample_right = 0.0;
             }
         }
     }
@@ -99,13 +241,11 @@ impl Plugin for Lrgran {
 
     fn new(plugin_info: &PluginInfo, features: &mut Features<'static>) -> Option<Self> {
         println!("lrgran new");
+        let sample_rate = plugin_info.sample_rate() as usize;
         Some(Self {
-            sample_rate: plugin_info.sample_rate() as usize,
+            sample_rate,
             active_notes: HashMap::new(),
-            sample: None,
-            sampler_state: SamplerState::Off,
-            record_pos: 0,
-            sound_onset: 0,
+            sampler: Sampler::new(sample_rate, MAX_SAMPLE_SECONDS),
             urids: features.map.populate_collection()?,
         })
     }
@@ -137,7 +277,7 @@ impl Plugin for Lrgran {
                     println!("notes:{:?}", self.active_notes);
                     self.active_notes.insert(note, vel);
                     if note == Note::A4 {
-                        self.arm_sampler();
+                        self.sampler = Sampler::new(self.sample_rate, MAX_SAMPLE_SECONDS);
                     }
                 }
                 MidiMessage::NoteOff(ch, note, vel) => {
@@ -146,7 +286,7 @@ impl Plugin for Lrgran {
                 }
                 MidiMessage::ProgramChange(ch, program) => {
                     println!("PC ch:{:?} program:{:?}", ch, program);
-                    self.arm_sampler();
+                    self.sampler = Sampler::new(self.sample_rate, MAX_SAMPLE_SECONDS);
                 }
                 _ => (),
             }

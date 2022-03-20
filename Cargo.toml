@@ -3,7 +3,7 @@ name = "lrgran"
 version = "0.1.0"
 authors = ["Ed Cashin <ed.cashin@acm.org>"]
 license = "BSD-3-Clause"
-edition = "2018"
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib"]
@@ -11,5 +11,9 @@ crate-type = ["cdylib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+alsa = "0.6.0"
+dsp = "0.10.2"
 lv2 = { git = "https://github.com/RustAudio/rust-lv2.git", features = ["lv2-midi"] }
+moving_avg = "0.2.0"
+rand = "0.8.5"
 wmidi = "3.1.0"
