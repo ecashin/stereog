@@ -77,6 +77,32 @@ struct Grain {
     pos: usize,   // the playback position
 }
 
+impl Grain {
+    fn new(grain_len: usize, sound_len: usize) -> Self {
+        assert!(grain_len < sound_len);
+        let mut rng = thread_rng();
+        let shrink = rng.gen_range(0..grain_len / 10);
+        let len = grain_len - shrink;
+        let start = rng.gen_range(0..sound_len - len);
+        Self {
+            start,
+            end: start + len,
+            pos: 0,
+        }
+    }
+
+    // returns sound offset and amplitude or None if grain is done
+    fn next(&mut self) -> Option<(usize, f32)> {
+        if self.pos == self.end {
+            None
+        } else {
+            let pos = self.pos;
+            self.pos += 1;
+            todo!() // apply Tukey window and return
+        }
+    }
+}
+
 struct Granular {
     grain_len: usize,
     sound_len: usize,
@@ -116,61 +142,6 @@ impl Granular {
             left.iter().sum::<f32>() / (n_grains as f32),
             right.iter().sum::<f32>() / (n_grains as f32),
         )
-    }
-}
-
-impl Grain {
-    fn new(grain_len: usize, sound_len: usize) -> Self {
-        assert!(grain_len < sound_len);
-        let mut rng = thread_rng();
-        let shrink = rng.gen_range(0..grain_len / 10);
-        let len = grain_len - shrink;
-        let start = rng.gen_range(0..sound_len - len);
-        Self {
-            start,
-            end: start + len,
-            pos: 0,
-        }
-    }
-
-    // returns sound offset and amplitude or None if grain is done
-    fn next(&mut self) -> Option<(usize, f32)> {
-        if self.pos == self.end {
-            None
-        } else {
-            let pos = self.pos;
-            self.pos += 1;
-            todo!() // apply Tukey window and return
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::tukey_window;
-    use super::Grain;
-
-    #[test]
-    fn test_grain() {
-        let grain = Grain::new(22050, 88200);
-        println!("{:?}", grain);
-    }
-
-    #[test]
-    fn test_tukey_window() {
-        let start = tukey_window(0, 1000);
-        let mid = tukey_window(499, 1000);
-        let left = tukey_window(199, 1000);
-        let right = tukey_window(799, 1000);
-        let end = tukey_window(999, 1000);
-        println!(
-            "tukey for 1000: 0:{} 199:{} 499:{} 799:{} 999:{}",
-            start, left, mid, right, end
-        );
-        assert!(start < left);
-        assert!(start < mid);
-        assert!(end < right);
-        assert!(end < mid);
     }
 }
 
@@ -389,3 +360,32 @@ impl Plugin for Stereog {
 }
 
 lv2_descriptors!(Stereog);
+
+#[cfg(test)]
+mod test {
+    use super::tukey_window;
+    use super::Grain;
+
+    #[test]
+    fn test_grain() {
+        let grain = Grain::new(22050, 88200);
+        println!("{:?}", grain);
+    }
+
+    #[test]
+    fn test_tukey_window() {
+        let start = tukey_window(0, 1000);
+        let mid = tukey_window(499, 1000);
+        let left = tukey_window(199, 1000);
+        let right = tukey_window(799, 1000);
+        let end = tukey_window(999, 1000);
+        println!(
+            "tukey for 1000: 0:{} 199:{} 499:{} 799:{} 999:{}",
+            start, left, mid, right, end
+        );
+        assert!(start < left);
+        assert!(start < mid);
+        assert!(end < right);
+        assert!(end < mid);
+    }
+}
