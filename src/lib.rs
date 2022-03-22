@@ -368,8 +368,15 @@ mod test {
 
     #[test]
     fn test_grain() {
-        let grain = Grain::new(22050, 88200);
+        let mut grain = Grain::new(22050, 88200);
         println!("{:?}", grain);
+        let g_next = grain.next();
+        assert!(g_next.is_some());
+        let (pos, amp) = g_next.unwrap();
+        assert_eq!(pos, 0);
+        let (pos2, amp2) = grain.next().unwrap();
+        assert_eq!(pos + 1, pos2);
+        assert!(amp2 > amp);
     }
 
     #[test]
