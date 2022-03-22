@@ -39,6 +39,22 @@ enum SamplerState {
     Playing,
 }
 
+const TUKEY_WINDOW_ALPHA: f32 = 0.5;
+
+fn tukey_window(pos: usize, len: usize) -> f32 {
+    let transition = ((len as f32 * TUKEY_WINDOW_ALPHA) / 2.0) as usize;
+    if pos >= transition && pos <= len - transition {
+        1.0
+    } else {
+        let pos = if pos > len - transition {
+            (len - pos) as f32
+        } else {
+            pos as f32
+        };
+        (1.0 - ((2.0 * std::f32::consts::PI * pos) / (TUKEY_WINDOW_ALPHA * len as f32)).cos()) / 2.0
+    }
+}
+
 struct Sampler {
     state: SamplerState,
     left: Vec<f32>,
@@ -60,6 +76,30 @@ struct Grain {
     pos: usize,   // the playback position
 }
 
+struct Granular {
+    grain_len: usize,
+    sound_len: usize,
+    grains: Vec<Grain>,
+}
+
+impl Granular {
+    fn new(grain_len: usize, sound_len: usize, n_grains: usize) -> Self {
+        let mut grains: Vec<Grain> = vec![];
+        for _ in 0..n_grains {
+            grains.push(Grain::new(grain_len, sound_len));
+        }
+        Self {
+            grain_len,
+            sound_len,
+            grains,
+        }
+    }
+
+    fn advance(&mut self) -> (f32, f32) {
+        todo!()
+    }
+}
+
 impl Grain {
     fn new(grain_len: usize, sound_len: usize) -> Self {
         assert!(grain_len < sound_len);
@@ -74,19 +114,45 @@ impl Grain {
         }
     }
 
-    fn advance(&mut self) -> (f32, f32) {
-        todo!()
+    // returns sound offset and amplitude or None if grain is done
+    fn next(&mut self) -> Option<(usize, f32)> {
+        if self.pos == self.end {
+            None
+        } else {
+            let pos = self.pos;
+            self.pos += 1;
+            todo!() // apply Tukey window and return
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use super::tukey_window;
     use super::Grain;
 
     #[test]
     fn test_grain() {
         let grain = Grain::new(22050, 88200);
         println!("{:?}", grain);
+    }
+
+    #[test]
+    fn test_tukey_window() {
+        let start = tukey_window(0, 1000);
+        let end = tukey_window(999, 1000);
+        let mid = tukey_window(500, 1000);
+        let left = tukey_window(199, 1000);
+        let right = tukey_window(799, 1000);
+        println!(
+            "tukey for 1000: 0:{} 199:{} 499:{} 799:{} 999:{}",
+            start, left, mid, right, end
+        );
+        assert!(start < mid);
+        assert!(end < mid);
+        assert!((start - end).abs() <= f32::EPSILON);
+        assert!((left - right).abs() <= f32::EPSILON);
+        // XXXdebug: I think maybe I need to start from one in the math.
     }
 }
 

@@ -12,7 +12,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 alsa = "0.6.0"
-dsp = "0.10.2"
 lv2 = { git = "https://github.com/RustAudio/rust-lv2.git", features = ["lv2-midi"] }
 moving_avg = "0.2.0"
 rand = "0.8.5"
