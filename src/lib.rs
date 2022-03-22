@@ -43,15 +43,16 @@ const TUKEY_WINDOW_ALPHA: f32 = 0.5;
 
 fn tukey_window(pos: usize, len: usize) -> f32 {
     let transition = ((len as f32 * TUKEY_WINDOW_ALPHA) / 2.0) as usize;
-    if pos >= transition && pos <= len - transition {
+    let n = pos + 1; // using variable names from Wikipedia
+    if n > transition && n < len - transition {
         1.0
     } else {
-        let pos = if pos > len - transition {
-            (len - pos) as f32
+        let n = if n >= len - transition {
+            (len - n) as f32
         } else {
-            pos as f32
+            n as f32
         };
-        (1.0 - ((2.0 * std::f32::consts::PI * pos) / (TUKEY_WINDOW_ALPHA * len as f32)).cos()) / 2.0
+        (1.0 - ((2.0 * std::f32::consts::PI * n) / (TUKEY_WINDOW_ALPHA * len as f32)).cos()) / 2.0
     }
 }
 
@@ -140,19 +141,18 @@ mod test {
     #[test]
     fn test_tukey_window() {
         let start = tukey_window(0, 1000);
-        let end = tukey_window(999, 1000);
-        let mid = tukey_window(500, 1000);
+        let mid = tukey_window(499, 1000);
         let left = tukey_window(199, 1000);
         let right = tukey_window(799, 1000);
+        let end = tukey_window(999, 1000);
         println!(
             "tukey for 1000: 0:{} 199:{} 499:{} 799:{} 999:{}",
             start, left, mid, right, end
         );
+        assert!(start < left);
         assert!(start < mid);
+        assert!(end < right);
         assert!(end < mid);
-        assert!((start - end).abs() <= f32::EPSILON);
-        assert!((left - right).abs() <= f32::EPSILON);
-        // XXXdebug: I think maybe I need to start from one in the math.
     }
 }
 
