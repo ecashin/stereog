@@ -66,7 +66,7 @@ struct Sampler {
     last_recording_ma: f32,
     sound_start: Option<usize>,
     sound_end: Option<usize>,
-    grains: Option<Vec<Grain>>,
+    granular: Option<Granular>,
 }
 
 // grains are sound-relative, abstracted from buffer wrapping
@@ -162,12 +162,15 @@ impl Sampler {
             last_recording_ma: 0.0,
             sound_start: None,
             sound_end: None,
-            grains: None,
+            granular: None,
         }
     }
 
     fn frame(&mut self) -> (f32, f32) {
-        todo!()
+        self.granular
+            .as_mut()
+            .unwrap()
+            .next(&self.left, &self.right, self.sound_start.unwrap())
     }
 
     fn minimum_sample_frames(&self) -> usize {
@@ -221,16 +224,13 @@ impl Sampler {
                         let sound_start = self.sound_start.unwrap();
                         self.sound_end = Some(sound_end);
                         self.state = SamplerState::Playing;
-                        let mut grains = vec![];
                         let end = if sound_end < sound_start {
                             sound_end + self.left.len()
                         } else {
                             sound_end
                         };
-                        for _ in 1..N_GRAINS {
-                            grains.push(Grain::new(self.grain_len(), end - sound_start));
-                        }
-                        self.grains = Some(grains);
+                        let granular = Granular::new(self.grain_len(), end - sound_start, N_GRAINS);
+                        self.granular = Some(granular);
                     }
                 }
                 SamplerState::Playing => (),
