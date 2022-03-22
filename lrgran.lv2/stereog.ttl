@@ -7,11 +7,11 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix urid: <http://lv2plug.in/ns/ext/urid#> .
 
-<https://github.com/ecashin/lrgran>
+<https://github.com/ecashin/stereog>
 	a lv2:Plugin ;
-	doap:name "lrgran" ;
+	doap:name "stereog" ;
 	doap:license <http://opensource.org/licenses/BSD-3-Clause> ;
-    lv2:project <https://github.com/ecashin/lrgran> ;
+    lv2:project <https://github.com/ecashin/stereog> ;
 	lv2:requiredFeature urid:map ;
 	lv2:optionalFeature lv2:hardRTCapable ;
 	lv2:port [

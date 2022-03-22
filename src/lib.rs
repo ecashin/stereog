@@ -250,8 +250,8 @@ impl Sampler {
     }
 }
 
-#[uri("https://github.com/ecashin/lrgran")]
-pub struct Lrgran {
+#[uri("https://github.com/ecashin/stereog")]
+pub struct Stereog {
     sample_rate: usize,
     active_notes: HashMap<wmidi::Note, wmidi::Velocity>,
     sampler: Sampler,
@@ -263,7 +263,7 @@ fn make_moving_average(sample_rate: usize) -> (usize, MovingAverage<f32>) {
     (len, MovingAverage::<f32>::new(len))
 }
 
-impl Lrgran {
+impl Stereog {
     // A function to write a chunk of output, to be called from `run()`. If the gate is high, then the input will be passed through for this chunk, otherwise silence is written.
     fn write_output(&mut self, ports: &mut Ports, offset: usize, mut len: usize) {
         if ports.in_left.len() < offset + len {
@@ -299,14 +299,14 @@ impl Lrgran {
     }
 }
 
-impl Plugin for Lrgran {
+impl Plugin for Stereog {
     type Ports = Ports;
 
     type InitFeatures = Features<'static>;
     type AudioFeatures = ();
 
     fn new(plugin_info: &PluginInfo, features: &mut Features<'static>) -> Option<Self> {
-        println!("lrgran new");
+        println!("stereog new");
         let sample_rate = plugin_info.sample_rate() as usize;
         Some(Self {
             sample_rate,
@@ -365,9 +365,9 @@ impl Plugin for Lrgran {
 
     // During it's runtime, the host might decide to deactivate the plugin. When the plugin is reactivated, the host calls this method which gives the plugin an opportunity to reset it's internal state.
     fn activate(&mut self, _features: &mut Features<'static>) {
-        println!("lrgran activate");
+        println!("stereog activate");
         self.active_notes = HashMap::new();
     }
 }
 
-lv2_descriptors!(Lrgran);
+lv2_descriptors!(Stereog);
