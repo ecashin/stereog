@@ -98,7 +98,8 @@ impl Grain {
         } else {
             let pos = self.pos;
             self.pos += 1;
-            todo!() // apply Tukey window and return
+            let amp = tukey_window(pos, self.end);
+            Some((pos, amp))
         }
     }
 }
