@@ -373,7 +373,7 @@ lv2_descriptors!(Stereog);
 #[cfg(test)]
 mod test {
     use super::tukey_window;
-    use super::Grain;
+    use super::{Grain, Granular};
 
     #[test]
     fn test_grain() {
@@ -416,5 +416,27 @@ mod test {
         assert!(start < mid);
         assert!(end < right);
         assert!(end < mid);
+    }
+
+    #[test]
+    fn test_granular_zero() {
+        let mut granular = Granular::new(30, 200, 3);
+        let left = [0.0; 200];
+        let right = [0.0; 200];
+        for i in 1..=10 {
+            let (lt, rt) = granular.next(&left, &right, 0);
+            println!("{} {} {}", i, lt, rt);
+        }
+    }
+
+    #[test]
+    fn test_granular_wrap() {
+        let mut granular = Granular::new(30, 200, 3);
+        let left = [0.0; 200];
+        let right = [0.0; 200];
+        for i in 1..=10 {
+            let (lt, rt) = granular.next(&left, &right, 190);
+            println!("{} {} {}", i, lt, rt);
+        }
     }
 }
