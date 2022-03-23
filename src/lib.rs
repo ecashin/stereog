@@ -87,7 +87,7 @@ impl Grain {
         Self {
             start,
             end: start + len,
-            pos: 0,
+            pos: start,
         }
     }
 
@@ -98,7 +98,7 @@ impl Grain {
         } else {
             let pos = self.pos;
             self.pos += 1;
-            let amp = tukey_window(pos, self.end);
+            let amp = tukey_window(pos - self.start, self.end - self.start);
             Some((pos, amp))
         }
     }
