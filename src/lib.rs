@@ -79,9 +79,14 @@ struct Grain {
 
 impl Grain {
     fn new(grain_len: usize, sound_len: usize) -> Self {
+        assert!(grain_len > 1);
         assert!(grain_len < sound_len);
         let mut rng = thread_rng();
-        let shrink = rng.gen_range(0..grain_len / 10);
+        let shrink = if grain_len > 20 {
+            rng.gen_range(0..grain_len / 10)
+        } else {
+            0
+        };
         let len = grain_len - shrink;
         let start = rng.gen_range(0..sound_len - len);
         Self {
@@ -381,6 +386,19 @@ mod test {
         let (pos2, amp2) = grain.next().unwrap();
         assert_eq!(pos + 1, pos2);
         assert!(amp2 > amp);
+    }
+
+    #[test]
+    fn print_short_grain() {
+        let show = move |mut g: Grain, i| loop {
+            if let Some((pos, amp)) = g.next() {
+                println!("grain:{} pos:{} amp:{}", i, pos, amp);
+            } else {
+                break;
+            }
+        };
+        show(Grain::new(10, 100), 1);
+        show(Grain::new(5, 100), 2);
     }
 
     #[test]
