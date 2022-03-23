@@ -4,5 +4,5 @@
 
 <https://github.com/ecashin/stereog>
 	a lv2:Plugin ;
-	lv2:binary <stereog.so> ;
+	lv2:binary <libstereog.so> ;
 	rdfs:seeAlso <stereog.ttl> .
