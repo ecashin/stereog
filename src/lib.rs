@@ -218,6 +218,7 @@ impl Sampler {
                     if avg > SOUND_ONSET_THRESHOLD && self.last_recording_ma < SOUND_ONSET_THRESHOLD
                     {
                         self.sound_start = Some(self.find_sound_start(avg));
+                        self.state = SamplerState::Recording;
                     }
                 }
                 SamplerState::Recording => {
