@@ -108,6 +108,8 @@ struct Granular {
     grain_len: usize,
     sound_len: usize,
     grains: Vec<Grain>,
+    left_mixer: Vec<f32>,
+    right_mixer: Vec<f32>,
 }
 
 impl Granular {
@@ -120,14 +122,14 @@ impl Granular {
             grain_len,
             sound_len,
             grains,
+            left_mixer: vec![0.0; n_grains],
+            right_mixer: vec![0.0; n_grains],
         }
     }
 
     fn next(&mut self, ring_left: &[f32], ring_right: &[f32], sound_start: usize) -> (f32, f32) {
         let ring_len = ring_left.len();
         let n_grains = self.grains.len();
-        let mut left: Vec<f32> = Vec::with_capacity(n_grains);
-        let mut right: Vec<f32> = Vec::with_capacity(n_grains);
         for i in 0..self.grains.len() {
             let mut g_next = self.grains[i].next();
             if g_next.is_none() {
@@ -136,12 +138,12 @@ impl Granular {
             }
             let (sound_pos, amplitude) = g_next.unwrap();
             let ring_pos = (sound_start + sound_pos) % ring_len;
-            left[i] = ring_left[ring_pos] * amplitude;
-            right[i] = ring_right[ring_pos] * amplitude;
+            self.left_mixer[i] = ring_left[ring_pos] * amplitude;
+            self.right_mixer[i] = ring_right[ring_pos] * amplitude;
         }
         (
-            left.iter().sum::<f32>() / (n_grains as f32),
-            right.iter().sum::<f32>() / (n_grains as f32),
+            self.left_mixer.iter().sum::<f32>() / (n_grains as f32),
+            self.right_mixer.iter().sum::<f32>() / (n_grains as f32),
         )
     }
 }
