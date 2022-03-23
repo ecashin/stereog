@@ -194,7 +194,7 @@ impl Sampler {
         for i in self.minimum_sample_frames()..self.left.len() - 1 {
             let pos = (self.record_pos + self.left.len() - i) % self.left.len();
             let mono = (self.left[pos] + self.right[pos]) / 2.0;
-            let avg = ma.feed(mono);
+            let avg = ma.feed(mono.abs());
             if most_quiet_amp.is_none() || most_quiet_amp.unwrap() > mono {
                 most_quiet_amp = Some(avg);
                 most_quiet_pos = Some(pos);
@@ -217,7 +217,9 @@ impl Sampler {
         for (sample_left, sample_right) in in_left.zip(in_right) {
             self.left[self.record_pos] = *sample_left;
             self.right[self.record_pos] = *sample_right;
-            let avg = self.recording_ma.feed((*sample_left + *sample_right) / 2.0);
+            let avg = self
+                .recording_ma
+                .feed(((*sample_left + *sample_right) / 2.0).abs());
             match self.state {
                 SamplerState::Armed => {
                     if avg > SOUND_ONSET_THRESHOLD && self.last_recording_ma < SOUND_ONSET_THRESHOLD
