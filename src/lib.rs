@@ -198,8 +198,8 @@ impl Sampler {
                 return pos;
             }
         }
-        if most_quiet_pos.is_some() {
-            most_quiet_pos.unwrap()
+        if let Some(pos) = most_quiet_pos {
+            pos
         } else {
             (self.record_pos + self.left.len() - 1) % self.left.len()
         }
