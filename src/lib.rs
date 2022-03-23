@@ -74,7 +74,7 @@ struct Sampler {
 struct Grain {
     start: usize, // the offset of the grain inside the sound
     end: usize,   // the end of the grain inside the sound
-    pos: usize,   // the playback position
+    pos: usize,   // the playback position inside the sound
 }
 
 impl Grain {
@@ -156,6 +156,7 @@ impl Granular {
 impl Sampler {
     fn new(sample_rate: usize, sample_seconds: f32) -> Self {
         let n_frames = (sample_seconds * sample_rate as f32) as usize;
+        println!("creating sampler with {} stereo frames", n_frames);
         let left = vec![0.0; n_frames];
         let right = vec![0.0; n_frames];
         let (_, recording_ma) = make_moving_average(sample_rate);
@@ -200,15 +201,28 @@ impl Sampler {
                 most_quiet_pos = Some(pos);
             }
             if avg < SOUND_ABSENCE_THRESHOLD {
+                println!(
+                    "early found sound start:{} in {} frames",
+                    pos,
+                    self.left.len()
+                );
                 return pos;
             }
         }
         if let Some(pos) = most_quiet_pos {
+            println!(
+                "late found sound start:{} in {} frames",
+                pos,
+                self.left.len()
+            );
             pos
         } else {
-            (self.record_pos + self.left.len() - 1) % self.left.len()
+            let pos = (self.record_pos + self.left.len() - 1) % self.left.len();
+            println!("no quiet sound start found; using {}", pos);
+            pos
         }
     }
+
     fn grain_len(&self) -> usize {
         self.sample_rate / 2
     }
@@ -226,6 +240,7 @@ impl Sampler {
                     {
                         self.sound_start = Some(self.find_sound_start(avg));
                         self.state = SamplerState::Recording;
+                        println!("changing from armed to recording sampler");
                     }
                 }
                 SamplerState::Recording => {
@@ -234,6 +249,7 @@ impl Sampler {
                         let sound_start = self.sound_start.unwrap();
                         self.sound_end = Some(sound_end);
                         self.state = SamplerState::Playing;
+                        println!("changing from recording to playing sampler");
                         let end = if sound_end < sound_start {
                             sound_end + self.left.len()
                         } else {
@@ -379,12 +395,15 @@ mod test {
 
     #[test]
     fn test_grain() {
-        let mut grain = Grain::new(22050, 88200);
+        let grain_len = 22050;
+        let sound_len = 88200;
+        let mut grain = Grain::new(grain_len, sound_len);
         println!("{:?}", grain);
         let g_next = grain.next();
         assert!(g_next.is_some());
         let (pos, amp) = g_next.unwrap();
-        assert_eq!(pos, 0);
+        assert!(pos >= grain.start);
+        assert!(pos < grain.end);
         let (pos2, amp2) = grain.next().unwrap();
         assert_eq!(pos + 1, pos2);
         assert!(amp2 > amp);
