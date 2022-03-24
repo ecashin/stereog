@@ -2,7 +2,7 @@ use lv2::prelude::*;
 use moving_avg::MovingAverage;
 use rand::prelude::*;
 use rand::Rng;
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 use wmidi::*;
 
 const MAX_SAMPLE_SECONDS: f32 = 5.0;
@@ -32,7 +32,7 @@ pub struct URIDs {
     unit: UnitURIDCollection,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum SamplerState {
     Armed,
     Recording,
@@ -67,6 +67,22 @@ struct Sampler {
     sound_start: Option<usize>,
     sound_end: Option<usize>,
     granular: Option<Granular>,
+}
+
+impl fmt::Debug for Sampler {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sampler")
+            .field("state", &self.state)
+            .field("left", &self.left)
+            .field("right", &self.right)
+            .field("sample_rate", &self.sample_rate)
+            .field("record_pos", &self.record_pos)
+            .field("last_recording_ma", &self.last_recording_ma)
+            .field("sound_start", &self.sound_start)
+            .field("sound_end", &self.sound_end)
+            .field("granular", &self.granular)
+            .finish()
+    }
 }
 
 // grains are sound-relative, abstracted from buffer wrapping
@@ -109,6 +125,7 @@ impl Grain {
     }
 }
 
+#[derive(Debug)]
 struct Granular {
     grain_len: usize,
     sound_len: usize,
@@ -275,7 +292,8 @@ pub struct Stereog {
 }
 
 fn make_moving_average(sample_rate: usize) -> (usize, MovingAverage<f32>) {
-    let len = sample_rate / 20_000;
+    let len = sample_rate / 1000; // a millisecond
+    assert!(len >= 2);
     (len, MovingAverage::<f32>::new(len))
 }
 
@@ -391,7 +409,8 @@ lv2_descriptors!(Stereog);
 #[cfg(test)]
 mod test {
     use super::tukey_window;
-    use super::{Grain, Granular};
+    use super::{Grain, Granular, Sampler, SamplerState};
+    use std::iter::Iterator;
 
     #[test]
     fn test_grain() {
@@ -459,5 +478,39 @@ mod test {
             let (lt, rt) = granular.next(&left, &right, 190);
             println!("{} {} {}", i, lt, rt);
         }
+    }
+
+    struct WaveForm {
+        period: usize,
+        pos: usize,
+    }
+
+    impl WaveForm {
+        fn new(period: usize) -> Self {
+            Self { period, pos: 0 }
+        }
+    }
+
+    impl Iterator for WaveForm {
+        type Item = f32;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let pos = self.pos as f32 / self.period as f32;
+            self.pos += 1;
+            Some((2.0 * std::f32::consts::PI * pos).sin())
+        }
+    }
+
+    #[test]
+    fn test_sampler() {
+        let sr = 44100;
+        let mut sampler = Sampler::new(sr, 3.0);
+        assert_eq!(sampler.state, SamplerState::Armed);
+        let wav_left = WaveForm::new(20).take(50);
+        let wav_right = WaveForm::new(20).take(50);
+        let left: Vec<_> = wav_left.collect();
+        let right: Vec<_> = wav_right.collect();
+        sampler.listen(left[..].iter(), right[..].iter());
+        println!("sampler:{:?}", sampler);
     }
 }
