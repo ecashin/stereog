@@ -210,7 +210,7 @@ impl Sampler {
         }
         let mut most_quiet_pos: Option<usize> = None;
         let mut most_quiet_amp: Option<f32> = None;
-        for i in self.minimum_sample_frames()..self.left.len() - 1 {
+        for i in 1..self.left.len() - 1 {
             let pos = (self.record_pos + self.left.len() - i) % self.left.len();
             if self.left[pos] == UNHEARD_VALUE {
                 println!(
