@@ -10,6 +10,7 @@ const MIN_SAMPLE_SECONDS: f32 = 0.5;
 const N_GRAINS: usize = 5;
 const SOUND_ONSET_THRESHOLD: f32 = 0.4;
 const SOUND_ABSENCE_THRESHOLD: f32 = SOUND_ONSET_THRESHOLD / 5.0;
+const UNHEARD_VALUE: f32 = -2.0; // for unused audio buffer slots
 
 #[derive(PortCollection)]
 pub struct Ports {
@@ -174,8 +175,8 @@ impl Sampler {
     fn new(sample_rate: usize, sample_seconds: f32) -> Self {
         let n_frames = (sample_seconds * sample_rate as f32) as usize;
         println!("creating sampler with {} stereo frames", n_frames);
-        let left = vec![0.0; n_frames];
-        let right = vec![0.0; n_frames];
+        let left = vec![UNHEARD_VALUE; n_frames];
+        let right = vec![UNHEARD_VALUE; n_frames];
         let (_, recording_ma) = make_moving_average(sample_rate);
         Self {
             state: SamplerState::Armed,
@@ -211,6 +212,13 @@ impl Sampler {
         let mut most_quiet_amp: Option<f32> = None;
         for i in self.minimum_sample_frames()..self.left.len() - 1 {
             let pos = (self.record_pos + self.left.len() - i) % self.left.len();
+            if self.left[pos] == UNHEARD_VALUE {
+                println!(
+                    "found unused audio buffer space at pos:{}; returning 0",
+                    pos
+                );
+                return 0;
+            }
             let mono = (self.left[pos] + self.right[pos]) / 2.0;
             let avg = ma.feed(mono.abs());
             if most_quiet_amp.is_none() || most_quiet_amp.unwrap() > mono {
