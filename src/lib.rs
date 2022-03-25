@@ -5,6 +5,7 @@ use rand::Rng;
 use std::{collections::HashMap, fmt};
 use wmidi::*;
 
+const LOW_PITCH_HZ: usize = 100;
 const MAX_SAMPLE_SECONDS: f32 = 5.0;
 const MIN_SAMPLE_SECONDS: f32 = 0.5;
 const N_GRAINS: usize = 5;
@@ -177,7 +178,7 @@ impl Sampler {
         println!("creating sampler with {} stereo frames", n_frames);
         let left = vec![UNHEARD_VALUE; n_frames];
         let right = vec![UNHEARD_VALUE; n_frames];
-        let (_, recording_ma) = make_moving_average(sample_rate);
+        let (_, recording_ma) = make_moving_average(sample_rate, LOW_PITCH_HZ);
         Self {
             state: SamplerState::Armed,
             left,
@@ -204,7 +205,7 @@ impl Sampler {
     }
 
     fn find_sound_start(&self, last_avg: f32) -> usize {
-        let (ma_len, mut ma) = make_moving_average(self.sample_rate);
+        let (ma_len, mut ma) = make_moving_average(self.sample_rate, LOW_PITCH_HZ);
         for _ in 1..ma_len {
             ma.feed(last_avg);
         }
@@ -213,11 +214,12 @@ impl Sampler {
         for i in 1..self.left.len() - 1 {
             let pos = (self.record_pos + self.left.len() - i) % self.left.len();
             if self.left[pos] == UNHEARD_VALUE {
+                let one_right = (pos + 1) % self.left.len();
                 println!(
-                    "found unused audio buffer space at pos:{}; returning 0",
-                    pos
+                    "looking back, found unused audio buffer space at pos:{}; returning {}",
+                    pos, one_right,
                 );
-                return 0;
+                return one_right;
             }
             let mono = (self.left[pos] + self.right[pos]) / 2.0;
             let avg = ma.feed(mono.abs());
@@ -253,6 +255,7 @@ impl Sampler {
     }
 
     fn listen(&mut self, in_left: std::slice::Iter<'_, f32>, in_right: std::slice::Iter<'_, f32>) {
+        println!("in Sampler::listen");
         for (sample_left, sample_right) in in_left.zip(in_right) {
             self.left[self.record_pos] = *sample_left;
             self.right[self.record_pos] = *sample_right;
@@ -261,6 +264,7 @@ impl Sampler {
                 .feed(((*sample_left + *sample_right) / 2.0).abs());
             match self.state {
                 SamplerState::Armed => {
+                    print!("avg:{} ", avg);
                     if avg > SOUND_ONSET_THRESHOLD && self.last_recording_ma < SOUND_ONSET_THRESHOLD
                     {
                         self.sound_start = Some(self.find_sound_start(avg));
@@ -286,6 +290,7 @@ impl Sampler {
                 }
                 SamplerState::Playing => (),
             }
+            self.last_recording_ma = avg;
             self.record_pos = (self.record_pos + 1) % self.left.len();
         }
     }
@@ -299,8 +304,8 @@ pub struct Stereog {
     urids: URIDs,
 }
 
-fn make_moving_average(sample_rate: usize) -> (usize, MovingAverage<f32>) {
-    let len = sample_rate / 1000; // a millisecond
+fn make_moving_average(sample_rate: usize, example_hz: usize) -> (usize, MovingAverage<f32>) {
+    let len = sample_rate / example_hz;
     assert!(len >= 2);
     (len, MovingAverage::<f32>::new(len))
 }
@@ -499,26 +504,53 @@ mod test {
         }
     }
 
-    impl Iterator for WaveForm {
+    impl<'a> Iterator for &'a mut WaveForm {
         type Item = f32;
 
         fn next(&mut self) -> Option<Self::Item> {
             let pos = self.pos as f32 / self.period as f32;
             self.pos += 1;
-            Some((2.0 * std::f32::consts::PI * pos).sin())
+            let value = (2.0 * std::f32::consts::PI * pos).sin();
+            Some(value)
         }
     }
 
     #[test]
-    fn test_sampler() {
-        let sr = 44100;
+    fn test_sampler_start_recording() {
+        let sr = 2000;
         let mut sampler = Sampler::new(sr, 3.0);
         assert_eq!(sampler.state, SamplerState::Armed);
-        let wav_left = WaveForm::new(20).take(50);
-        let wav_right = WaveForm::new(20).take(50);
-        let left: Vec<_> = wav_left.collect();
-        let right: Vec<_> = wav_right.collect();
+        let mut wav_left = WaveForm::new(20);
+        let mut wav_right = WaveForm::new(20);
+        let left: Vec<_> = wav_left.take(50).collect();
+        let right: Vec<_> = wav_right.take(50).collect();
         sampler.listen(left[..].iter(), right[..].iter());
         println!("sampler:{:?}", sampler);
+        assert_eq!(sampler.state, SamplerState::Recording);
+        assert_eq!(sampler.sound_start, Some(0));
+    }
+
+    #[test]
+    fn test_sampler_one_listen() {
+        let sr = 2000;
+        let mut sampler = Sampler::new(sr, 3.0);
+        assert_eq!(sampler.state, SamplerState::Armed);
+        let mut wav_left = WaveForm::new(20);
+        let mut wav_right = WaveForm::new(20);
+        let mut left: Vec<_> = wav_left.take(50).collect();
+        let mut right: Vec<_> = wav_right.take(50).collect();
+        sampler.listen(left[..].iter(), right[..].iter());
+        println!("sampler:{:?}", sampler);
+        left = wav_left.take(200).collect();
+        right = wav_right.take(200).collect();
+        let envelope: Vec<_> = (0..left.len())
+            .map(|i| tukey_window(i, left.len()))
+            .collect();
+        for i in 0..100 {
+            left[i] *= envelope[100 + i];
+            right[i] *= envelope[100 + i];
+        }
+        sampler.listen(left[..].iter(), right[..].iter());
+        assert_eq!(sampler.state, SamplerState::Playing);
     }
 }
