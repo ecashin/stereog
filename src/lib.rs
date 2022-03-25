@@ -5,9 +5,9 @@ use rand::Rng;
 use std::{collections::HashMap, fmt};
 use wmidi::*;
 
+const GRAINS_PER_SECOND: usize = 10;
 const LOW_PITCH_HZ: usize = 100;
 const MAX_SAMPLE_SECONDS: f32 = 5.0;
-const MIN_SAMPLE_SECONDS: f32 = 0.5;
 const N_GRAINS: usize = 5;
 const SOUND_ONSET_THRESHOLD: f32 = 0.4;
 const SOUND_ABSENCE_THRESHOLD: f32 = SOUND_ONSET_THRESHOLD / 5.0;
@@ -200,10 +200,6 @@ impl Sampler {
             .next(&self.left, &self.right, self.sound_start.unwrap())
     }
 
-    fn minimum_sample_frames(&self) -> usize {
-        (self.sample_rate as f32 * MIN_SAMPLE_SECONDS) as usize
-    }
-
     fn find_sound_start(&self, last_avg: f32) -> usize {
         let (ma_len, mut ma) = make_moving_average(self.sample_rate, LOW_PITCH_HZ);
         for _ in 1..ma_len {
@@ -250,10 +246,6 @@ impl Sampler {
         }
     }
 
-    fn grain_len(&self) -> usize {
-        self.sample_rate / 2
-    }
-
     fn listen(&mut self, in_left: std::slice::Iter<'_, f32>, in_right: std::slice::Iter<'_, f32>) {
         println!("in Sampler::listen");
         for (sample_left, sample_right) in in_left.zip(in_right) {
@@ -284,7 +276,9 @@ impl Sampler {
                         } else {
                             sound_end
                         };
-                        let granular = Granular::new(self.grain_len(), end - sound_start, N_GRAINS);
+                        let sound_len = end - sound_start;
+                        let granular =
+                            Granular::new(self.grain_len(sound_len), sound_len, N_GRAINS);
                         self.granular = Some(granular);
                     }
                 }
@@ -293,6 +287,16 @@ impl Sampler {
             self.last_recording_ma = avg;
             self.record_pos = (self.record_pos + 1) % self.left.len();
         }
+    }
+
+    fn grain_len(&self, sound_len: usize) -> usize {
+        let len = self.sample_rate / GRAINS_PER_SECOND;
+        let len = if sound_len / len > 3 {
+            len
+        } else {
+            sound_len / 3
+        };
+        len
     }
 }
 
