@@ -247,7 +247,6 @@ impl Sampler {
     }
 
     fn listen(&mut self, in_left: std::slice::Iter<'_, f32>, in_right: std::slice::Iter<'_, f32>) {
-        println!("in Sampler::listen");
         for (sample_left, sample_right) in in_left.zip(in_right) {
             self.left[self.record_pos] = *sample_left;
             self.right[self.record_pos] = *sample_right;
@@ -256,7 +255,6 @@ impl Sampler {
                 .feed(((*sample_left + *sample_right) / 2.0).abs());
             match self.state {
                 SamplerState::Armed => {
-                    print!("avg:{} ", avg);
                     if avg > SOUND_ONSET_THRESHOLD && self.last_recording_ma < SOUND_ONSET_THRESHOLD
                     {
                         self.sound_start = Some(self.find_sound_start(avg));
