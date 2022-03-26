@@ -12,13 +12,12 @@ const GRAINS_PER_SECOND: usize = 10;
 const LOW_PITCH_HZ: usize = 100;
 const MAX_SAMPLE_SECONDS: f32 = 5.0;
 const N_GRAINS: usize = 5;
-const SOUND_ONSET_THRESHOLD: f32 = 0.4;
-const SOUND_ABSENCE_THRESHOLD: f32 = SOUND_ONSET_THRESHOLD / 5.0;
 const UNHEARD_VALUE: f32 = -2.0; // for unused audio buffer slots
 
 #[derive(PortCollection)]
 pub struct Ports {
     control: InputPort<AtomPort>,
+    threshold: InputPort<Control>,
     in_left: InputPort<Audio>,
     in_right: InputPort<Audio>,
     out_left: OutputPort<Audio>,
@@ -203,7 +202,7 @@ impl Sampler {
             .next(&self.left, &self.right, self.sound_start.unwrap())
     }
 
-    fn find_sound_start(&self, last_avg: f32) -> usize {
+    fn find_sound_start(&self, last_avg: f32, sound_end_threshold: f32) -> usize {
         let (_ma_len, mut ma) = make_moving_average(self.sample_rate, LOW_PITCH_HZ, last_avg);
         let mut most_quiet_pos: Option<usize> = None;
         let mut most_quiet_amp: Option<f32> = None;
@@ -223,7 +222,7 @@ impl Sampler {
                 most_quiet_amp = Some(avg);
                 most_quiet_pos = Some(pos);
             }
-            if avg < SOUND_ABSENCE_THRESHOLD {
+            if avg < sound_end_threshold {
                 println!(
                     "early found sound start:{} in {} frames",
                     pos,
@@ -246,7 +245,12 @@ impl Sampler {
         }
     }
 
-    fn listen(&mut self, in_left: std::slice::Iter<'_, f32>, in_right: std::slice::Iter<'_, f32>) {
+    fn listen(
+        &mut self,
+        in_left: std::slice::Iter<'_, f32>,
+        in_right: std::slice::Iter<'_, f32>,
+        threshold: f32,
+    ) {
         for (sample_left, sample_right) in in_left.zip(in_right) {
             self.left[self.record_pos] = *sample_left;
             self.right[self.record_pos] = *sample_right;
@@ -255,15 +259,15 @@ impl Sampler {
                 .update((*sample_left + *sample_right) / 2.0);
             match self.state {
                 SamplerState::Armed => {
-                    if avg > SOUND_ONSET_THRESHOLD && self.last_recording_ma < SOUND_ONSET_THRESHOLD
-                    {
-                        self.sound_start = Some(self.find_sound_start(avg));
+                    if avg > threshold && self.last_recording_ma < threshold {
+                        self.sound_start =
+                            Some(self.find_sound_start(avg, sound_end_threshold(threshold)));
                         self.state = SamplerState::Recording;
                         println!("changing from armed to recording sampler");
                     }
                 }
                 SamplerState::Recording => {
-                    if avg < SOUND_ABSENCE_THRESHOLD {
+                    if avg < sound_end_threshold(threshold) {
                         let sound_end = self.record_pos;
                         let sound_start = self.sound_start.unwrap();
                         self.sound_end = Some(sound_end);
@@ -329,7 +333,6 @@ impl Stereog {
         let out_left = &mut ports.out_left[offset..offset + len];
         let out_right = &mut ports.out_right[offset..offset + len];
 
-        self.sampler.listen(in_left.iter(), in_right.iter());
         if active {
             if self.sampler.state == SamplerState::Playing {
                 for (out_l, out_r) in out_left.iter_mut().zip(out_right.iter_mut()) {
@@ -338,6 +341,8 @@ impl Stereog {
                     *out_r = g_right;
                 }
             } else {
+                self.sampler
+                    .listen(in_left.iter(), in_right.iter(), *ports.threshold);
                 out_left.copy_from_slice(in_left);
                 out_right.copy_from_slice(in_right);
             }
@@ -349,6 +354,10 @@ impl Stereog {
             }
         }
     }
+}
+
+fn sound_end_threshold(start_threshold: f32) -> f32 {
+    start_threshold / 5.0
 }
 
 impl Plugin for Stereog {
@@ -394,6 +403,10 @@ impl Plugin for Stereog {
                     println!("ON ch:{:?} note:{:?} vel:{:?}", ch, note, vel);
                     println!("notes:{:?}", self.active_notes);
                     self.active_notes.insert(note, vel);
+                    println!(
+                        "sampler moving average: {}",
+                        self.sampler.recording_ma.read()
+                    );
                     if note == Note::A4 {
                         self.sampler = Sampler::new(self.sample_rate, MAX_SAMPLE_SECONDS);
                     }
@@ -429,6 +442,8 @@ mod test {
     use super::tukey_window;
     use super::{Grain, Granular, Sampler, SamplerState};
     use std::iter::Iterator;
+
+    const TESTING_THRESHOLD: f32 = 0.4;
 
     #[test]
     fn test_grain() {
@@ -529,7 +544,7 @@ mod test {
         let mut wav_right = WaveForm::new(20);
         let left: Vec<_> = wav_left.take(50).collect();
         let right: Vec<_> = wav_right.take(50).collect();
-        sampler.listen(left[..].iter(), right[..].iter());
+        sampler.listen(left[..].iter(), right[..].iter(), TESTING_THRESHOLD);
         println!("sampler:{:?}", sampler);
         assert_eq!(sampler.state, SamplerState::Recording);
         assert_eq!(sampler.sound_start, Some(0));
@@ -544,7 +559,7 @@ mod test {
         let mut wav_right = WaveForm::new(20);
         let mut left: Vec<_> = wav_left.take(50).collect();
         let mut right: Vec<_> = wav_right.take(50).collect();
-        sampler.listen(left[..].iter(), right[..].iter());
+        sampler.listen(left[..].iter(), right[..].iter(), TESTING_THRESHOLD);
         println!("sampler:{:?}", sampler);
         left = wav_left.take(200).collect();
         right = wav_right.take(200).collect();
@@ -555,7 +570,7 @@ mod test {
             left[i] *= envelope[left.len() - 1 - (100 - i)];
             right[i] *= envelope[left.len() - 1 - (100 - i)];
         }
-        sampler.listen(left[..].iter(), right[..].iter());
+        sampler.listen(left[..].iter(), right[..].iter(), TESTING_THRESHOLD);
         assert_eq!(sampler.state, SamplerState::Playing);
     }
 }

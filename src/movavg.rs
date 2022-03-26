@@ -17,6 +17,10 @@ impl MovAvg {
         self.avg = prev + new;
         self.avg
     }
+
+    pub fn read(&self) -> f32 {
+        self.avg
+    }
 }
 
 pub struct MovAvgAbs {
@@ -32,6 +36,10 @@ impl MovAvgAbs {
 
     pub fn update(&mut self, value: f32) -> f32 {
         self.ma.update(value.abs())
+    }
+
+    pub fn read(&self) -> f32 {
+        self.ma.read()
     }
 }
 
