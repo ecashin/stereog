@@ -1,9 +1,12 @@
 use lv2::prelude::*;
-use moving_avg::MovingAverage;
 use rand::prelude::*;
 use rand::Rng;
 use std::{collections::HashMap, fmt};
 use wmidi::*;
+
+mod movavg;
+
+use crate::movavg::MovAvg;
 
 const GRAINS_PER_SECOND: usize = 10;
 const LOW_PITCH_HZ: usize = 100;
@@ -64,7 +67,7 @@ struct Sampler {
     right: Vec<f32>,
     sample_rate: usize,
     record_pos: usize,
-    recording_ma: MovingAverage<f32>,
+    recording_ma: MovAvg,
     last_recording_ma: f32,
     sound_start: Option<usize>,
     sound_end: Option<usize>,
@@ -178,7 +181,7 @@ impl Sampler {
         println!("creating sampler with {} stereo frames", n_frames);
         let left = vec![UNHEARD_VALUE; n_frames];
         let right = vec![UNHEARD_VALUE; n_frames];
-        let (_, recording_ma) = make_moving_average(sample_rate, LOW_PITCH_HZ);
+        let (_, recording_ma) = make_moving_average(sample_rate, LOW_PITCH_HZ, 0.0);
         Self {
             state: SamplerState::Armed,
             left,
@@ -201,10 +204,7 @@ impl Sampler {
     }
 
     fn find_sound_start(&self, last_avg: f32) -> usize {
-        let (ma_len, mut ma) = make_moving_average(self.sample_rate, LOW_PITCH_HZ);
-        for _ in 1..ma_len {
-            ma.feed(last_avg);
-        }
+        let (_ma_len, mut ma) = make_moving_average(self.sample_rate, LOW_PITCH_HZ, last_avg);
         let mut most_quiet_pos: Option<usize> = None;
         let mut most_quiet_amp: Option<f32> = None;
         for i in 1..self.left.len() - 1 {
@@ -218,7 +218,7 @@ impl Sampler {
                 return one_right;
             }
             let mono = (self.left[pos] + self.right[pos]) / 2.0;
-            let avg = ma.feed(mono.abs());
+            let avg = ma.update_and_get(mono.abs());
             if most_quiet_amp.is_none() || most_quiet_amp.unwrap() > mono {
                 most_quiet_amp = Some(avg);
                 most_quiet_pos = Some(pos);
@@ -252,7 +252,7 @@ impl Sampler {
             self.right[self.record_pos] = *sample_right;
             let avg = self
                 .recording_ma
-                .feed(((*sample_left + *sample_right) / 2.0).abs());
+                .update_and_get(((*sample_left + *sample_right) / 2.0).abs());
             match self.state {
                 SamplerState::Armed => {
                     if avg > SOUND_ONSET_THRESHOLD && self.last_recording_ma < SOUND_ONSET_THRESHOLD
@@ -305,10 +305,10 @@ pub struct Stereog {
     urids: URIDs,
 }
 
-fn make_moving_average(sample_rate: usize, example_hz: usize) -> (usize, MovingAverage<f32>) {
+fn make_moving_average(sample_rate: usize, example_hz: usize, initial_avg: f32) -> (usize, MovAvg) {
     let len = sample_rate / example_hz;
     assert!(len >= 2);
-    (len, MovingAverage::<f32>::new(len))
+    (len, MovAvg::new(len, initial_avg))
 }
 
 impl Stereog {
