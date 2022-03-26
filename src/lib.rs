@@ -291,12 +291,11 @@ impl Sampler {
 
     fn grain_len(&self, sound_len: usize) -> usize {
         let len = self.sample_rate / GRAINS_PER_SECOND;
-        let len = if sound_len / len > 3 {
+        if sound_len / len > 3 {
             len
         } else {
             sound_len / 3
-        };
-        len
+        }
     }
 }
 
