@@ -6,7 +6,7 @@ use wmidi::*;
 
 mod movavg;
 
-use crate::movavg::MovAvg;
+use crate::movavg::MovAvgAbs;
 
 const GRAINS_PER_SECOND: usize = 10;
 const LOW_PITCH_HZ: usize = 100;
@@ -67,7 +67,7 @@ struct Sampler {
     right: Vec<f32>,
     sample_rate: usize,
     record_pos: usize,
-    recording_ma: MovAvg,
+    recording_ma: MovAvgAbs,
     last_recording_ma: f32,
     sound_start: Option<usize>,
     sound_end: Option<usize>,
@@ -218,7 +218,7 @@ impl Sampler {
                 return one_right;
             }
             let mono = (self.left[pos] + self.right[pos]) / 2.0;
-            let avg = ma.update_and_get(mono.abs());
+            let avg = ma.update(mono);
             if most_quiet_amp.is_none() || most_quiet_amp.unwrap() > mono {
                 most_quiet_amp = Some(avg);
                 most_quiet_pos = Some(pos);
@@ -252,7 +252,7 @@ impl Sampler {
             self.right[self.record_pos] = *sample_right;
             let avg = self
                 .recording_ma
-                .update_and_get(((*sample_left + *sample_right) / 2.0).abs());
+                .update((*sample_left + *sample_right) / 2.0);
             match self.state {
                 SamplerState::Armed => {
                     if avg > SOUND_ONSET_THRESHOLD && self.last_recording_ma < SOUND_ONSET_THRESHOLD
@@ -305,10 +305,14 @@ pub struct Stereog {
     urids: URIDs,
 }
 
-fn make_moving_average(sample_rate: usize, example_hz: usize, initial_avg: f32) -> (usize, MovAvg) {
-    let len = sample_rate / example_hz;
+fn make_moving_average(
+    sample_rate: usize,
+    example_hz: usize,
+    initial_avg: f32,
+) -> (usize, MovAvgAbs) {
+    let len = sample_rate / (2 * example_hz);
     assert!(len >= 2);
-    (len, MovAvg::new(len, initial_avg))
+    (len, MovAvgAbs::new(len, initial_avg))
 }
 
 impl Stereog {
@@ -548,8 +552,8 @@ mod test {
             .map(|i| tukey_window(i, left.len()))
             .collect();
         for i in 0..100 {
-            left[i] *= envelope[100 + i];
-            right[i] *= envelope[100 + i];
+            left[i] *= envelope[left.len() - 1 - (100 - i)];
+            right[i] *= envelope[left.len() - 1 - (100 - i)];
         }
         sampler.listen(left[..].iter(), right[..].iter());
         assert_eq!(sampler.state, SamplerState::Playing);
