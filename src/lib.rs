@@ -51,7 +51,7 @@ fn play_speed_for_note(note: &Note) -> f32 {
 fn interpolate(
     sound_start: usize,
     sound_end: usize,
-    sound_pos: f32,
+    sound_pos: f32, // 1.0 ~ the whole sound
     ring_left: &[f32],
     ring_right: &[f32],
 ) -> (f32, f32) {
@@ -145,7 +145,7 @@ impl Grain {
             let n_steps = n_steps_unit_speed / speed;
             let pos = self.pos;
             self.pos += 1.0 / n_steps;
-            let amp = tukey_window(pos - self.start as f32, n_steps as f32);
+            let amp = tukey_window(pos * n_steps as f32, n_steps as f32);
             Some((pos, amp))
         }
     }
@@ -489,7 +489,7 @@ mod test {
         let right = left.clone();
         let (lt, rt) = interpolate(5, 20, 0.3, &left[..], &right[..]);
         assert!((lt - rt).abs() < f32::EPSILON);
-        assert!((lt - -203.0).abs() < f32::EPSILON); // use real value here
+        assert!((lt - 0.299999).abs() < 0.00001);
     }
 
     #[test]
@@ -501,16 +501,44 @@ mod test {
         let g_next = grain.next(1.0);
         assert!(g_next.is_some());
         let (pos, amp) = g_next.unwrap();
-        assert!(pos >= grain.start as f32);
-        assert!(pos < grain.end as f32);
+        println!("pos:{} amp:{}", pos, amp);
+        assert!(pos >= 0.0);
+        assert!(pos < 1.0);
+        for _ in 0..((grain.end - grain.start) / 2) {
+            grain.next(1.0);
+        }
         let (pos2, amp2) = grain.next(1.0).unwrap();
-        assert_eq!(pos + 1.0, pos2);
+        println!("pos1:{} pos2:{} amp1:{} amp2:{}", pos, pos2, amp, amp2);
+        assert!(pos < pos2);
         assert!(amp2 > amp);
     }
 
     #[test]
     fn test_varispeed_grain() {
-        todo!()
+        let grain_len = 22050;
+        let sound_len = 88200;
+        let mut grain = Grain::new(grain_len, sound_len);
+        let g_next = grain.next(1.0);
+        assert!(g_next.is_some());
+        let (pos, _amp) = g_next.unwrap();
+        assert!(pos >= 0.0);
+        assert!(pos < 1.0);
+
+        // double speed grain consumed in half the number of steps
+        let speed = 2.0;
+        for _ in 0..((grain.end - grain.start) / 2) {
+            grain.next(speed);
+        }
+        assert!(grain.next(speed).is_none());
+
+        // half speed grain takes twice as long to consume
+        grain = Grain::new(grain_len, sound_len);
+        let speed = 0.5;
+        let n_steps = (grain.end - grain.start) as f32;
+        for _ in 0..((n_steps * 1.8) as usize) {
+            grain.next(speed);
+        }
+        assert!(grain.next(speed).is_some());
     }
 
     #[test]
