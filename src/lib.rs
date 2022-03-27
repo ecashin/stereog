@@ -183,16 +183,16 @@ impl Granular {
         self.right_mixer.clear();
         for (note, _) in active_notes.iter() {
             let speed = play_speed_for_note(note);
-            let grains = self.grains.entry(*note).or_insert(
+            let grains = self.grains.entry(*note).or_insert_with(|| {
                 (0..N_GRAINS)
                     .map(|_| Grain::new(self.grain_len, self.sound_len))
-                    .collect(),
-            );
-            for i in 0..grains.len() {
-                let mut g_next = grains[i].next(speed);
+                    .collect()
+            });
+            for grain in grains.iter_mut() {
+                let mut g_next = grain.next(speed);
                 if g_next.is_none() {
-                    grains[i] = Grain::new(self.grain_len, self.sound_len);
-                    g_next = grains[i].next(speed);
+                    *grain = Grain::new(self.grain_len, self.sound_len);
+                    g_next = grain.next(speed);
                 }
                 let (sound_pos, amplitude) = g_next.unwrap();
                 let (lt, rt) =
