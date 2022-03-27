@@ -376,25 +376,22 @@ impl Stereog {
             len = ports.in_left.len() - offset;
         }
 
-        let active = !self.active_notes.is_empty();
+        let notes_playing = !self.active_notes.is_empty();
 
         let in_left = &ports.in_left[offset..offset + len];
         let in_right = &ports.in_right[offset..offset + len];
         let out_left = &mut ports.out_left[offset..offset + len];
         let out_right = &mut ports.out_right[offset..offset + len];
 
-        if active {
-            if self.sampler.state == SamplerState::Playing {
-                for (out_l, out_r) in out_left.iter_mut().zip(out_right.iter_mut()) {
-                    let (g_left, g_right) = self.sampler.frame(&self.active_notes);
-                    *out_l = g_left;
-                    *out_r = g_right;
-                }
-            } else {
-                self.sampler
-                    .listen(in_left.iter(), in_right.iter(), *ports.threshold);
-                out_left.copy_from_slice(in_left);
-                out_right.copy_from_slice(in_right);
+        if self.sampler.state != SamplerState::Playing {
+            self.sampler
+                .listen(in_left.iter(), in_right.iter(), *ports.threshold);
+        }
+        if notes_playing && self.sampler.state == SamplerState::Playing {
+            for (out_l, out_r) in out_left.iter_mut().zip(out_right.iter_mut()) {
+                let (g_left, g_right) = self.sampler.frame(&self.active_notes);
+                *out_l = g_left;
+                *out_r = g_right;
             }
         } else {
             for (out_sample_left, out_sample_right) in out_left.iter_mut().zip(out_right.iter_mut())
