@@ -43,20 +43,40 @@ enum SamplerState {
     Playing,
 }
 
+fn play_speed_for_note(note: &Note) -> f32 {
+    let ratio = note.to_freq_f64() / Note::C3.to_freq_f64();
+    ratio as f32
+}
+
+fn interpolate(
+    sound_start: usize,
+    sound_end: usize,
+    sound_pos: f32,
+    ring_left: &[f32],
+    ring_right: &[f32],
+) -> (f32, f32) {
+    let sound_len = (sound_end - sound_start) as f32;
+    let before = (sound_pos * sound_len).floor();
+    let after = before + 1.0;
+    let before_wt = after - sound_pos;
+    let after_wt = sound_pos - before;
+    let before = before.round() as usize % ring_left.len();
+    let after = after.round() as usize % ring_left.len();
+    let left = ring_left[before] * before_wt + ring_left[after] * after_wt;
+    let right = ring_right[before] * before_wt + ring_right[after] * after_wt;
+    (left, right)
+}
+
 const TUKEY_WINDOW_ALPHA: f32 = 0.5;
 
-fn tukey_window(pos: usize, len: usize) -> f32 {
-    let transition = ((len as f32 * TUKEY_WINDOW_ALPHA) / 2.0) as usize;
-    let n = pos + 1; // using variable names from Wikipedia
+fn tukey_window(pos: f32, len: f32) -> f32 {
+    let transition = (len * TUKEY_WINDOW_ALPHA) / 2.0;
+    let n = pos + 1.0; // using variable names from Wikipedia
     if n > transition && n < len - transition {
         1.0
     } else {
-        let n = if n >= len - transition {
-            (len - n) as f32
-        } else {
-            n as f32
-        };
-        (1.0 - ((2.0 * std::f32::consts::PI * n) / (TUKEY_WINDOW_ALPHA * len as f32)).cos()) / 2.0
+        let n = if n >= len - transition { len - n } else { n };
+        (1.0 - ((2.0 * std::f32::consts::PI * n) / (TUKEY_WINDOW_ALPHA * len)).cos()) / 2.0
     }
 }
 
@@ -94,7 +114,7 @@ impl fmt::Debug for Sampler {
 struct Grain {
     start: usize, // the offset of the grain inside the sound
     end: usize,   // the end of the grain inside the sound
-    pos: usize,   // the playback position inside the sound
+    pos: f32,     // the fractional playback position inside the sound
 }
 
 impl Grain {
@@ -112,18 +132,20 @@ impl Grain {
         Self {
             start,
             end: start + len,
-            pos: start,
+            pos: 0.0,
         }
     }
 
     // returns sound offset and amplitude or None if grain is done
-    fn next(&mut self) -> Option<(usize, f32)> {
-        if self.pos == self.end {
+    fn next(&mut self, speed: f32) -> Option<(f32, f32)> {
+        if self.pos >= 1.0 {
             None
         } else {
+            let n_steps_unit_speed = (self.end - self.start) as f32;
+            let n_steps = n_steps_unit_speed / speed;
             let pos = self.pos;
-            self.pos += 1;
-            let amp = tukey_window(pos - self.start, self.end - self.start);
+            self.pos += 1.0 / n_steps;
+            let amp = tukey_window(pos - self.start as f32, n_steps as f32);
             Some((pos, amp))
         }
     }
@@ -133,43 +155,55 @@ impl Grain {
 struct Granular {
     grain_len: usize,
     sound_len: usize,
-    grains: Vec<Grain>,
+    grains: HashMap<wmidi::Note, Vec<Grain>>,
     left_mixer: Vec<f32>,
     right_mixer: Vec<f32>,
 }
 
 impl Granular {
     fn new(grain_len: usize, sound_len: usize, n_grains: usize) -> Self {
-        let mut grains: Vec<Grain> = vec![];
-        for _ in 0..n_grains {
-            grains.push(Grain::new(grain_len, sound_len));
-        }
         Self {
             grain_len,
             sound_len,
-            grains,
+            grains: HashMap::new(),
             left_mixer: vec![0.0; n_grains],
             right_mixer: vec![0.0; n_grains],
         }
     }
 
-    fn next(&mut self, ring_left: &[f32], ring_right: &[f32], sound_start: usize) -> (f32, f32) {
-        let ring_len = ring_left.len();
-        let n_grains = self.grains.len();
-        for i in 0..self.grains.len() {
-            let mut g_next = self.grains[i].next();
-            if g_next.is_none() {
-                self.grains[i] = Grain::new(self.grain_len, self.sound_len);
-                g_next = self.grains[i].next();
+    fn next(
+        &mut self,
+        ring_left: &[f32],
+        ring_right: &[f32],
+        sound_start: usize,
+        sound_end: usize,
+        active_notes: &HashMap<wmidi::Note, wmidi::Velocity>,
+    ) -> (f32, f32) {
+        self.left_mixer.clear();
+        self.right_mixer.clear();
+        for (note, _) in active_notes.iter() {
+            let speed = play_speed_for_note(note);
+            let grains = self.grains.entry(*note).or_insert(
+                (0..N_GRAINS)
+                    .map(|_| Grain::new(self.grain_len, self.sound_len))
+                    .collect(),
+            );
+            for i in 0..grains.len() {
+                let mut g_next = grains[i].next(speed);
+                if g_next.is_none() {
+                    grains[i] = Grain::new(self.grain_len, self.sound_len);
+                    g_next = grains[i].next(speed);
+                }
+                let (sound_pos, amplitude) = g_next.unwrap();
+                let (lt, rt) =
+                    interpolate(sound_start, sound_end, sound_pos, ring_left, ring_right);
+                self.left_mixer.push(lt * amplitude);
+                self.right_mixer.push(rt * amplitude);
             }
-            let (sound_pos, amplitude) = g_next.unwrap();
-            let ring_pos = (sound_start + sound_pos) % ring_len;
-            self.left_mixer[i] = ring_left[ring_pos] * amplitude;
-            self.right_mixer[i] = ring_right[ring_pos] * amplitude;
         }
         (
-            self.left_mixer.iter().sum::<f32>() / (n_grains as f32),
-            self.right_mixer.iter().sum::<f32>() / (n_grains as f32),
+            self.left_mixer.iter().sum::<f32>() / (self.left_mixer.len() as f32),
+            self.right_mixer.iter().sum::<f32>() / (self.right_mixer.len() as f32),
         )
     }
 }
@@ -195,11 +229,14 @@ impl Sampler {
         }
     }
 
-    fn frame(&mut self) -> (f32, f32) {
-        self.granular
-            .as_mut()
-            .unwrap()
-            .next(&self.left, &self.right, self.sound_start.unwrap())
+    fn frame(&mut self, active_notes: &HashMap<wmidi::Note, wmidi::Velocity>) -> (f32, f32) {
+        self.granular.as_mut().unwrap().next(
+            &self.left,
+            &self.right,
+            self.sound_start.unwrap(),
+            self.sound_end.unwrap(),
+            active_notes,
+        )
     }
 
     fn find_sound_start(&self, last_avg: f32, sound_end_threshold: f32) -> usize {
@@ -336,7 +373,7 @@ impl Stereog {
         if active {
             if self.sampler.state == SamplerState::Playing {
                 for (out_l, out_r) in out_left.iter_mut().zip(out_right.iter_mut()) {
-                    let (g_left, g_right) = self.sampler.frame();
+                    let (g_left, g_right) = self.sampler.frame(&self.active_notes);
                     *out_l = g_left;
                     *out_r = g_right;
                 }
@@ -440,10 +477,20 @@ lv2_descriptors!(Stereog);
 #[cfg(test)]
 mod test {
     use super::tukey_window;
-    use super::{Grain, Granular, Sampler, SamplerState};
+    use super::{interpolate, Grain, Granular, Sampler, SamplerState};
+    use std::collections::HashMap;
     use std::iter::Iterator;
 
     const TESTING_THRESHOLD: f32 = 0.4;
+
+    #[test]
+    fn test_interpolate() {
+        let left: Vec<_> = (0..15).map(|i| i as f32).collect();
+        let right = left.clone();
+        let (lt, rt) = interpolate(5, 20, 0.3, &left[..], &right[..]);
+        assert!((lt - rt).abs() < f32::EPSILON);
+        assert!((lt - -203.0).abs() < f32::EPSILON); // use real value here
+    }
 
     #[test]
     fn test_grain() {
@@ -451,20 +498,25 @@ mod test {
         let sound_len = 88200;
         let mut grain = Grain::new(grain_len, sound_len);
         println!("{:?}", grain);
-        let g_next = grain.next();
+        let g_next = grain.next(1.0);
         assert!(g_next.is_some());
         let (pos, amp) = g_next.unwrap();
-        assert!(pos >= grain.start);
-        assert!(pos < grain.end);
-        let (pos2, amp2) = grain.next().unwrap();
-        assert_eq!(pos + 1, pos2);
+        assert!(pos >= grain.start as f32);
+        assert!(pos < grain.end as f32);
+        let (pos2, amp2) = grain.next(1.0).unwrap();
+        assert_eq!(pos + 1.0, pos2);
         assert!(amp2 > amp);
+    }
+
+    #[test]
+    fn test_varispeed_grain() {
+        todo!()
     }
 
     #[test]
     fn print_short_grain() {
         let show = move |mut g: Grain, i| loop {
-            if let Some((pos, amp)) = g.next() {
+            if let Some((pos, amp)) = g.next(1.0) {
                 println!("grain:{} pos:{} amp:{}", i, pos, amp);
             } else {
                 break;
@@ -476,11 +528,11 @@ mod test {
 
     #[test]
     fn test_tukey_window() {
-        let start = tukey_window(0, 1000);
-        let mid = tukey_window(499, 1000);
-        let left = tukey_window(199, 1000);
-        let right = tukey_window(799, 1000);
-        let end = tukey_window(999, 1000);
+        let start = tukey_window(0.0, 1000.0);
+        let mid = tukey_window(499.0, 1000.0);
+        let left = tukey_window(199.0, 1000.0);
+        let right = tukey_window(799.0, 1000.0);
+        let end = tukey_window(999.0, 1000.0);
         println!(
             "tukey for 1000: 0:{} 199:{} 499:{} 799:{} 999:{}",
             start, left, mid, right, end
@@ -491,13 +543,17 @@ mod test {
         assert!(end < mid);
     }
 
+    fn active_notes() -> HashMap<wmidi::Note, wmidi::Velocity> {
+        HashMap::from([(wmidi::Note::B3, wmidi::Velocity::MAX)])
+    }
+
     #[test]
     fn test_granular_zero() {
         let mut granular = Granular::new(30, 200, 3);
         let left = [0.0; 200];
         let right = [0.0; 200];
         for i in 1..=10 {
-            let (lt, rt) = granular.next(&left, &right, 0);
+            let (lt, rt) = granular.next(&left, &right, 0, 100, &active_notes());
             println!("{} {} {}", i, lt, rt);
         }
     }
@@ -508,7 +564,7 @@ mod test {
         let left = [0.0; 200];
         let right = [0.0; 200];
         for i in 1..=10 {
-            let (lt, rt) = granular.next(&left, &right, 190);
+            let (lt, rt) = granular.next(&left, &right, 190, 210, &active_notes());
             println!("{} {} {}", i, lt, rt);
         }
     }
@@ -564,7 +620,7 @@ mod test {
         left = wav_left.take(200).collect();
         right = wav_right.take(200).collect();
         let envelope: Vec<_> = (0..left.len())
-            .map(|i| tukey_window(i, left.len()))
+            .map(|i| tukey_window(i as f32, left.len() as f32))
             .collect();
         for i in 0..100 {
             left[i] *= envelope[left.len() - 1 - (100 - i)];
