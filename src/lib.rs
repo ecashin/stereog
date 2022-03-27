@@ -208,10 +208,20 @@ impl Granular {
     }
 }
 
+fn frames_to_seconds(sample_rate: usize, n_frames: usize) -> f32 {
+    let sr = sample_rate as f32;
+    let n = n_frames as f32;
+    n / sr
+}
+
 impl Sampler {
     fn new(sample_rate: usize, sample_seconds: f32) -> Self {
         let n_frames = (sample_seconds * sample_rate as f32) as usize;
-        println!("creating sampler with {} stereo frames", n_frames);
+        println!(
+            "creating sampler with {} stereo frames, {} seconds",
+            n_frames,
+            frames_to_seconds(sample_rate, n_frames)
+        );
         let left = vec![UNHEARD_VALUE; n_frames];
         let right = vec![UNHEARD_VALUE; n_frames];
         let (_, recording_ma) = make_moving_average(sample_rate, LOW_PITCH_HZ, 0.0);
@@ -309,7 +319,10 @@ impl Sampler {
                         let sound_start = self.sound_start.unwrap();
                         self.sound_end = Some(sound_end);
                         self.state = SamplerState::Playing;
-                        println!("changing from recording to playing sampler");
+                        println!(
+                            "changing from recording to playing sampler with {}-second sound",
+                            frames_to_seconds(self.sample_rate, sound_end - sound_start)
+                        );
                         let end = if sound_end < sound_start {
                             sound_end + self.left.len()
                         } else {
