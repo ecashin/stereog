@@ -56,10 +56,11 @@ fn interpolate(
     ring_right: &[f32],
 ) -> (f32, f32) {
     let sound_len = (sound_end - sound_start) as f32;
-    let before = (sound_pos * sound_len).floor();
+    let pos = sound_pos * sound_len;
+    let before = pos.floor();
     let after = before + 1.0;
-    let before_wt = after - sound_pos;
-    let after_wt = sound_pos - before;
+    let before_wt = after - pos;
+    let after_wt = pos - before;
     let before = before.round() as usize % ring_left.len();
     let after = after.round() as usize % ring_left.len();
     let left = ring_left[before] * before_wt + ring_left[after] * after_wt;
