@@ -449,8 +449,8 @@ impl Plugin for Stereog {
             match message {
                 MidiMessage::NoteOn(ch, note, vel) => {
                     println!("ON ch:{:?} note:{:?} vel:{:?}", ch, note, vel);
-                    println!("notes:{:?}", self.active_notes);
                     self.active_notes.insert(note, vel);
+                    println!("notes:{:?}", self.active_notes);
                     println!(
                         "sampler moving average: {}",
                         self.sampler.recording_ma.read()
