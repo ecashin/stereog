@@ -16,7 +16,7 @@ which explains a few current oddities:
 It is implemented in [Rust](https://www.rust-lang.org/)
 and distributed under the MIT license.
 
-During development, [Ardour v6](https://ardour.org/),
+During development, a Linux platform running [Ardour v6](https://ardour.org/),
 the open-source digital audio workstation (DAW) was used for testing.
 Is its virtual MIDI keyboard polyphonic?  Let me know.
 
