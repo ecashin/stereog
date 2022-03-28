@@ -2,7 +2,7 @@
 name = "stereog"
 version = "0.1.0"
 authors = ["Ed Cashin <ed.cashin@acm.org>"]
-license = "BSD-3-Clause"
+license = "MIT"
 edition = "2021"
 
 [lib]
